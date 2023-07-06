@@ -54,6 +54,17 @@ let
 
   buildGrammar = callPackage ./grammar.nix { };
 
+  grammars' = import ./grammars { inherit lib; } // extraGrammars;
+  grammarsSrc = grammars' //
+    { tree-sitter-ocaml = grammars'.tree-sitter-ocaml // { location = "ocaml"; }; } //
+    { tree-sitter-ocaml-interface = grammars'.tree-sitter-ocaml // { location = "interface"; }; } //
+    { tree-sitter-org-nvim = grammars'.tree-sitter-org-nvim // { language = "org"; }; } //
+    { tree-sitter-typescript = grammars'.tree-sitter-typescript // { location = "typescript"; }; } //
+    { tree-sitter-tsx = grammars'.tree-sitter-typescript // { location = "tsx"; }; } //
+    { tree-sitter-markdown = grammars'.tree-sitter-markdown // { location = "tree-sitter-markdown"; }; } //
+    { tree-sitter-markdown-inline = grammars'.tree-sitter-markdown // { language = "markdown_inline"; location = "tree-sitter-markdown-inline"; }; } //
+    { tree-sitter-wing = grammars'.tree-sitter-wing // { location = "libs/tree-sitter-wing"; generate = true; }; };
+
   builtGrammars =
     let
       build = name: grammar:
@@ -63,17 +74,31 @@ let
           src = grammar.src or (fetchGrammar grammar);
           location = grammar.location or null;
         };
-      grammars' = import ./grammars { inherit lib; } // extraGrammars;
-      grammars = grammars' //
-        { tree-sitter-ocaml = grammars'.tree-sitter-ocaml // { location = "ocaml"; }; } //
-        { tree-sitter-ocaml-interface = grammars'.tree-sitter-ocaml // { location = "interface"; }; } //
-        { tree-sitter-org-nvim = grammars'.tree-sitter-org-nvim // { language = "org"; }; } //
-        { tree-sitter-typescript = grammars'.tree-sitter-typescript // { location = "typescript"; }; } //
-        { tree-sitter-tsx = grammars'.tree-sitter-typescript // { location = "tsx"; }; } //
-        { tree-sitter-markdown = grammars'.tree-sitter-markdown // { location = "tree-sitter-markdown"; }; } //
-        { tree-sitter-markdown-inline = grammars'.tree-sitter-markdown // { language = "markdown_inline"; location = "tree-sitter-markdown-inline"; }; };
     in
-    lib.mapAttrs build (grammars);
+    lib.mapAttrs build (grammarsSrc);
+
+  buildGrammarWasm = callPackage ./grammar-wasm.nix {};
+
+  grammarsWasmSrc = (builtins.removeAttrs grammarsSrc [ "tree-sitter-llvm" ]) //
+    { tree-sitter-ql-dbscheme = grammars'.tree-sitter-ql-dbscheme // { wasmName = "dbscheme"; }; };
+
+  builtGrammarsWasm =
+    let
+      buildWasm = name: grammar:
+        buildGrammarWasm {
+          language = name;
+          inherit version;
+          src = grammar.src or (fetchGrammar grammar);
+          location = grammar.location or null;
+          wasmName = grammar.wasmName or
+            grammar.language or
+              (lib.strings.replaceStrings [ "-" ] [ "_" ]
+                (lib.strings.removePrefix "tree-sitter-" name));
+        };
+    in
+    lib.mapAttrs buildWasm (grammarsWasmSrc);
+
+  #aabccd
 
   # Usage:
   # pkgs.tree-sitter.withPlugins (p: [ p.tree-sitter-c p.tree-sitter-java ... ])
@@ -145,11 +170,12 @@ rustPlatform.buildRustPackage {
     updater = {
       inherit update-all-grammars;
     };
-    inherit grammars buildGrammar builtGrammars withPlugins allGrammars;
+    inherit grammars buildGrammar builtGrammars builtGrammarsWasm withPlugins allGrammars;
 
     tests = {
       # make sure all grammars build
       builtGrammars = lib.recurseIntoAttrs builtGrammars;
+      builtGrammarsWasm = lib.recurseIntoAttrs builtGrammarsWasm;
     };
   };
 
